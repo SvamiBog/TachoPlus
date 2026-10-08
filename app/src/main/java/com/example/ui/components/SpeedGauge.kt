@@ -18,9 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,42 +26,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.ColorDriving
-import com.example.ui.theme.TachoAmber
 import com.example.ui.theme.TachoCyan
 import com.example.ui.theme.TachoRed
-import kotlin.math.PI
+import java.util.Locale
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
+/** Speedometer. Null values are shown as "—": nothing is invented when the adapter does not report them. */
 @Composable
 fun SpeedGauge(
-    speedKmh: Int,
-    speedLimitKmh: Int = 90,
-    engineRpm: Int,
-    totalOdometerKm: Long,
-    tripOdometerKm: Double,
-    utcTime: String,
-    modifier: Modifier = Modifier
+    speedKmh: Double?,
+    engineRpm: Double?,
+    odometerKm: Double?,
+    nowMs: Long,
+    overspeed: Boolean?,
+    modifier: Modifier = Modifier,
+    speedLimitKmh: Int = 90
 ) {
     val maxSpeed = 120f
-    val currentSpeedClamped = speedKmh.coerceIn(0, 120).toFloat()
+    val speed = speedKmh?.roundToInt()
     val animatedSpeed by animateFloatAsState(
-        targetValue = currentSpeedClamped,
+        targetValue = (speed ?: 0).coerceIn(0, 120).toFloat(),
         animationSpec = tween(durationMillis = 400),
         label = "SpeedGaugeAnimation"
     )
+    val moving = (speed ?: 0) > 0
+    val tooFast = overspeed == true || (speed ?: 0) > speedLimitKmh
 
     Column(
         modifier = modifier
@@ -75,7 +72,6 @@ fun SpeedGauge(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Top row: UTC / Tachograph clock and GNSS status
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -86,20 +82,22 @@ fun SpeedGauge(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(if (speedKmh > 0) ColorDriving else Color(0xFF64748B))
+                        .background(if (moving) ColorDriving else Color(0xFF64748B))
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (speedKmh > 0) "В ДВИЖЕНИИ" else "СТОЯНКА",
+                    text = when {
+                        speed == null -> "СКОРОСТЬ НЕИЗВЕСТНА"
+                        moving -> "В ДВИЖЕНИИ"
+                        else -> "СТОЯНКА"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color = if (speedKmh > 0) ColorDriving else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (moving) ColorDriving else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
-            // Tachograph UTC Clock (standard on all tachographs)
             Text(
-                text = if (utcTime.isNotEmpty()) utcTime else "--:--:-- UTC",
+                text = fmtUtcClock(nowMs),
                 style = MaterialTheme.typography.labelMedium,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.primary,
@@ -109,22 +107,20 @@ fun SpeedGauge(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Main Speed Gauge Arc
         Box(
             modifier = Modifier
-                .size(230.dp)
+                .size(220.dp)
                 .testTag("speed_gauge_box"),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val strokeWidth = 14.dp.toPx()
                 val radius = (size.minDimension - strokeWidth) / 2
-                val centerOffset = Offset(size.width / 2, size.height / 2)
-
+                val center = Offset(size.width / 2, size.height / 2)
                 val startAngle = 140f
                 val sweepAngle = 260f
+                val legalFraction = speedLimitKmh / maxSpeed
 
-                // Background track
                 drawArc(
                     color = Color(0xFF1E293B),
                     startAngle = startAngle,
@@ -132,80 +128,44 @@ fun SpeedGauge(
                     useCenter = false,
                     style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                 )
-
-                // Legal speed limit track portion (0 to 90 km/h)
-                val legalFraction = (speedLimitKmh / maxSpeed)
-                val legalSweep = sweepAngle * legalFraction
                 drawArc(
-                    brush = Brush.sweepGradient(
-                        0.0f to Color(0xFF0284C7),
-                        0.5f to Color(0xFF10B981),
-                        1.0f to Color(0xFFF59E0B),
-                        center = centerOffset
-                    ),
-                    startAngle = startAngle,
-                    sweepAngle = legalSweep,
+                    color = TachoRed.copy(alpha = 0.35f),
+                    startAngle = startAngle + sweepAngle * legalFraction,
+                    sweepAngle = sweepAngle * (1f - legalFraction),
                     useCenter = false,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
                 )
-
-                // Danger zone track portion (90 to 120 km/h)
-                val dangerSweep = sweepAngle * (1f - legalFraction)
-                drawArc(
-                    color = TachoRed.copy(alpha = 0.85f),
-                    startAngle = startAngle + legalSweep,
-                    sweepAngle = dangerSweep,
-                    useCenter = false,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                )
-
-                // Active speed fill indicator
                 val activeSweep = (animatedSpeed / maxSpeed) * sweepAngle
                 if (activeSweep > 0f) {
-                    val activeColor = if (animatedSpeed > speedLimitKmh) TachoRed else TachoCyan
                     drawArc(
-                        color = activeColor,
+                        color = if (animatedSpeed > speedLimitKmh) TachoRed else TachoCyan,
                         startAngle = startAngle,
                         sweepAngle = activeSweep,
                         useCenter = false,
                         style = Stroke(width = strokeWidth + 2.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
-
-                // Ticks along the gauge
-                val totalTicks = 12
-                for (i in 0..totalTicks) {
-                    val tickAngle = startAngle + (i.toFloat() / totalTicks) * sweepAngle
-                    val tickRad = Math.toRadians(tickAngle.toDouble())
-                    val innerR = radius - 18.dp.toPx()
-                    val outerR = radius - 8.dp.toPx()
-
-                    val startX = (centerOffset.x + innerR * cos(tickRad)).toFloat()
-                    val startY = (centerOffset.y + innerR * sin(tickRad)).toFloat()
-                    val endX = (centerOffset.x + outerR * cos(tickRad)).toFloat()
-                    val endY = (centerOffset.y + outerR * sin(tickRad)).toFloat()
-
-                    val tickColor = if (i >= 9) TachoRed.copy(alpha = 0.8f) else Color(0xFF64748B)
+                val ticks = 12
+                for (i in 0..ticks) {
+                    val angle = Math.toRadians((startAngle + i.toFloat() / ticks * sweepAngle).toDouble())
+                    val inner = radius - 18.dp.toPx()
+                    val outer = radius - 8.dp.toPx()
                     drawLine(
-                        color = tickColor,
-                        start = Offset(startX, startY),
-                        end = Offset(endX, endY),
+                        color = if (i * 10 >= speedLimitKmh) TachoRed.copy(alpha = 0.8f) else Color(0xFF64748B),
+                        start = Offset((center.x + inner * cos(angle)).toFloat(), (center.y + inner * sin(angle)).toFloat()),
+                        end = Offset((center.x + outer * cos(angle)).toFloat(), (center.y + outer * sin(angle)).toFloat()),
                         strokeWidth = if (i % 3 == 0) 3.dp.toPx() else 1.5.dp.toPx()
                     )
                 }
             }
 
-            // Gauge Center Display: Digital Speedometer
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text(
-                    text = "$speedKmh",
+                    text = speed?.toString() ?: "—",
                     fontSize = 54.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
-                    color = if (speedKmh > speedLimitKmh) TachoRed else MaterialTheme.colorScheme.onSurface
+                    color = if (tooFast) TachoRed else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "КМ / Ч",
@@ -214,47 +174,16 @@ fun SpeedGauge(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     letterSpacing = 2.sp
                 )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Speed limit badge (Traffic Sign Style: Red Circle)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF0F172A))
-                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                            .border(2.dp, TachoRed, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "$speedLimitKmh",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Black
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "ОГРАНИЧЕНИЕ",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (overspeed == true) {
+                    Text(text = "ПРЕВЫШЕНИЕ (тахограф)", fontSize = 10.sp, color = TachoRed, fontWeight = FontWeight.Bold)
+                } else {
+                    Text(text = "ограничитель $speedLimitKmh", fontSize = 10.sp, color = Color(0xFF64748B))
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Digital Odometer & Engine Telemetry bar (LCD style)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -265,53 +194,22 @@ fun SpeedGauge(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = "ОБЩИЙ ПРОБЕГ",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF64748B),
-                    fontSize = 9.sp
-                )
-                Text(
-                    text = "$totalOdometerKm км",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = TachoCyan
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "ОБОРОТЫ RPM",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF64748B),
-                    fontSize = 9.sp
-                )
-                Text(
-                    text = "$engineRpm",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = if (engineRpm > 2100) TachoAmber else Color(0xFFE2E8F0)
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "СУТОЧНЫЙ РЕЙС",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF64748B),
-                    fontSize = 9.sp
-                )
-                Text(
-                    text = "$tripOdometerKm км",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF10B981)
-                )
-            }
+            GaugeValue("ОДОМЕТР", odometerKm?.let { String.format(Locale.US, "%,.1f км", it).replace(',', ' ') }, Alignment.Start, TachoCyan)
+            GaugeValue("ОБОРОТЫ", engineRpm?.roundToInt()?.toString(), Alignment.End, Color(0xFFE2E8F0))
         }
+    }
+}
+
+@Composable
+private fun GaugeValue(label: String, value: String?, alignment: Alignment.Horizontal, color: Color) {
+    Column(horizontalAlignment = alignment) {
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = Color(0xFF64748B), fontSize = 9.sp)
+        Text(
+            text = value ?: "—",
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            color = if (value == null) Color(0xFF64748B) else color
+        )
     }
 }

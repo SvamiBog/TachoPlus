@@ -1,6 +1,8 @@
 {
   "name": "Тахограф Про",
-  "description": "Приложение для подключения к европейским тахографам (VDO DTCO, Stoneridge SE5000, EFAS) по Bluetooth, мониторинга Регламента ЕС 561/2006 и Пакета мобильности ЕС.",
+  "description": "Помощник водителя: таймеры режима труда и отдыха по Регламенту ЕС 561/2006 с предупреждениями. Режим отмечается вручную или приходит от тахографа через Bluetooth-адаптер шины FMS (J1939, ELM327/STN).",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

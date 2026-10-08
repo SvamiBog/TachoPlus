@@ -3,7 +3,6 @@ package com.example.ui
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -15,19 +14,16 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,7 +40,6 @@ import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -57,12 +52,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,10 +67,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.bluetooth.BluetoothPermissionManager
-import com.example.data.bluetooth.ConnectionState
+import com.example.data.link.LinkState
 import com.example.ui.components.BluetoothScannerDialog
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.DevicesScreen
@@ -88,128 +84,107 @@ import com.example.ui.theme.TachoAmber
 import com.example.ui.theme.TachoCyan
 import com.example.ui.theme.TachoRed
 import com.example.ui.viewmodel.TachographViewModel
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 
 enum class TachoNavTab(val title: String) {
     DASHBOARD("Панель"),
-    TIMERS("Таймеры ЕС"),
-    CARDS("Карты ЕС"),
+    TIMERS("Таймеры"),
+    CARDS("Карты"),
     LOG("Журнал"),
-    DEVICES("Тахограф ЕС")
+    DEVICES("Адаптер")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TachographApp(
-    viewModel: TachographViewModel = viewModel()
-) {
+fun TachographApp(viewModel: TachographViewModel = viewModel()) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
-    var showBluetoothDialog by remember { mutableStateOf(false) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var showScanner by rememberSaveable { mutableStateOf(false) }
 
-    val connectionState by viewModel.connectionState.collectAsState()
-    val connectedDeviceName by viewModel.connectedDeviceName.collectAsState()
-    val lastErrorMessage by viewModel.lastErrorMessage.collectAsState()
-    val discoveredDevices by viewModel.discoveredDevices.collectAsState()
-    val telemetry by viewModel.telemetry.collectAsState()
-    val compliance by viewModel.compliance.collectAsState()
-    val currentActivity by viewModel.currentActivity.collectAsState()
-    val driverCard1 by viewModel.driverCard1.collectAsState()
-    val driverCard2 by viewModel.driverCard2.collectAsState()
-    val deviceInfo by viewModel.deviceInfo.collectAsState()
-    val events by viewModel.events.collectAsState()
-    val timelineSegments by viewModel.timelineSegments.collectAsState()
-    val savedSessions by viewModel.savedSessions.collectAsState()
-    val isDownloadingDdd by viewModel.isDownloadingDdd.collectAsState()
-    val dddProgress by viewModel.dddDownloadProgress.collectAsState()
-    val exportedReportText by viewModel.exportedReportText.collectAsState()
-
-    // Real Stream Telemetry States
-    val isRealDataActive by viewModel.isRealDataActive.collectAsState()
-    val streamBytesReceived by viewModel.streamBytesReceived.collectAsState()
-    val streamPacketsReceived by viewModel.streamPacketsReceived.collectAsState()
-    val lastRawPacket by viewModel.lastRawPacket.collectAsState()
-    val activeProtocolName by viewModel.activeProtocolName.collectAsState()
-    val selectedProtocol by viewModel.selectedProtocol.collectAsState()
-    val rawTerminalLogs by viewModel.rawTerminalLogs.collectAsState()
-
-    // Listen for toast/snackbar messages from the engine
-    LaunchedEffect(Unit) {
-        viewModel.toastMessages.collectLatest { msg ->
-            snackbarHostState.showSnackbar(msg)
-        }
-    }
+    val link by viewModel.link.collectAsStateWithLifecycle()
+    val vehicle by viewModel.vehicle.collectAsStateWithLifecycle()
+    val compliance by viewModel.compliance.collectAsStateWithLifecycle()
+    val devices by viewModel.devices.collectAsStateWithLifecycle()
+    val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
+    val bluetoothEnabled by viewModel.bluetoothEnabled.collectAsStateWithLifecycle()
+    val terminal by viewModel.terminal.collectAsStateWithLifecycle()
+    val events by viewModel.events.collectAsStateWithLifecycle()
+    val sessions by viewModel.savedSessions.collectAsStateWithLifecycle()
+    val timeline by viewModel.todayTimeline.collectAsStateWithLifecycle()
+    val report by viewModel.report.collectAsStateWithLifecycle()
 
     var hasBtPermission by remember { mutableStateOf(BluetoothPermissionManager.arePermissionsGranted(context)) }
-    var isBtEnabled by remember { mutableStateOf(BluetoothPermissionManager.isBluetoothEnabled(context)) }
 
-    // Launcher for Bluetooth Permissions
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        hasBtPermission = allGranted
-        if (allGranted) {
-            if (BluetoothPermissionManager.isBluetoothEnabled(context)) {
-                viewModel.startDiscovery()
-            } else {
-                Toast.makeText(context, "Разрешения получены. Включите Bluetooth.", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(context, "Требуется разрешение Bluetooth для поиска тахографов", Toast.LENGTH_SHORT).show()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        hasBtPermission = BluetoothPermissionManager.arePermissionsGranted(context)
+        viewModel.refreshBluetoothState()
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
+    }
+
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) {
+            Toast.makeText(context, "Без уведомлений предупреждения о лимитах будут видны только в приложении", Toast.LENGTH_LONG).show()
+        }
+    }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && BluetoothPermissionManager.needsNotificationPermission(context)) {
+            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    // Launcher to prompt system to enable Bluetooth
-    val enableBtLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) {
-        isBtEnabled = BluetoothPermissionManager.isBluetoothEnabled(context)
-        if (isBtEnabled && hasBtPermission) {
-            viewModel.startDiscovery()
-        }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        hasBtPermission = BluetoothPermissionManager.arePermissionsGranted(context)
+        viewModel.refreshBluetoothState()
+        if (hasBtPermission && BluetoothPermissionManager.isBluetoothEnabled(context)) viewModel.startScan()
+        if (!hasBtPermission) Toast.makeText(context, "Без разрешения Bluetooth адаптер не найти", Toast.LENGTH_SHORT).show()
+    }
+    val enableBtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        viewModel.refreshBluetoothState()
+        if (hasBtPermission && BluetoothPermissionManager.isBluetoothEnabled(context)) viewModel.startScan()
     }
 
-    fun requestBtPermissions() {
-        val required = BluetoothPermissionManager.getRequiredPermissions()
-        permissionLauncher.launch(required.toTypedArray())
-    }
+    fun requestBtPermissions() = permissionLauncher.launch(BluetoothPermissionManager.getRequiredPermissions().toTypedArray())
 
     fun requestEnableBt() {
-        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
         try {
-            enableBtLauncher.launch(intent)
+            enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
         } catch (e: Exception) {
-            Toast.makeText(context, "Включите Bluetooth в настройках устройства", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Включите Bluetooth в настройках", Toast.LENGTH_SHORT).show()
         }
     }
 
-    if (showBluetoothDialog) {
+    fun openScanner() {
+        showScanner = true
+        if (hasBtPermission && bluetoothEnabled && !isScanning) viewModel.startScan()
+    }
+
+    if (showScanner) {
         BluetoothScannerDialog(
-            connectionState = connectionState,
-            discoveredDevices = discoveredDevices,
+            isScanning = isScanning,
+            devices = devices,
             hasBluetoothPermission = hasBtPermission,
-            isBluetoothEnabled = isBtEnabled,
+            isBluetoothEnabled = bluetoothEnabled,
             onRequestPermission = { requestBtPermissions() },
             onRequestEnableBluetooth = { requestEnableBt() },
-            onStartScan = {
-                if (!hasBtPermission) {
-                    requestBtPermissions()
-                } else if (!BluetoothPermissionManager.isBluetoothEnabled(context)) {
-                    requestEnableBt()
-                } else {
-                    viewModel.startDiscovery()
-                }
+            onStartScan = { viewModel.startScan() },
+            onStopScan = { viewModel.stopScan() },
+            onPairDevice = { viewModel.pair(it) },
+            onConnectDevice = { device, transport ->
+                viewModel.connect(device, transport)
+                showScanner = false
             },
-            onCancelScan = { viewModel.cancelDiscovery() },
-            onPairDevice = { device -> viewModel.pairDevice(device) },
-            onConnectDevice = { device, transport -> viewModel.connectToDevice(device, transport) },
-            onEnableDemoMode = { viewModel.enableDemoMode() },
-            onDismiss = { showBluetoothDialog = false }
+            onStartDemo = {
+                viewModel.startDemo()
+                showScanner = false
+            },
+            onDismiss = {
+                viewModel.stopScan()
+                showScanner = false
+            }
         )
     }
 
@@ -228,23 +203,13 @@ fun TachographApp(
                                 .background(TachoCyan),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.LocalShipping,
-                                contentDescription = null,
-                                tint = Color(0xFF0F172A),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(Icons.Default.LocalShipping, contentDescription = null, tint = Color(0xFF0F172A), modifier = Modifier.size(20.dp))
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
+                            Text("ТАХОГРАФ ПРО", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                             Text(
-                                text = "ТАХОГРАФ ПРО",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp
-                            )
-                            Text(
-                                text = if (deviceInfo.regNumber.isNotBlank()) deviceInfo.regNumber else "Тахограф ЕС",
+                                text = vehicle.registration ?: vehicle.vin ?: "Режим труда и отдыха",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -252,73 +217,36 @@ fun TachographApp(
                     }
                 },
                 actions = {
-                    // Bluetooth Status Pill Button
+                    val (label, color) = when {
+                        link.state == LinkState.DEMO -> "ДЕМО" to TachoCyan
+                        link.state == LinkState.CONNECTED && link.messagesDecoded > 0 -> "ОНЛАЙН" to ColorDriving
+                        link.state == LinkState.CONNECTED -> "ПОДКЛЮЧЕНО" to TachoAmber
+                        link.state == LinkState.CONNECTING || link.state == LinkState.RECONNECTING -> "СВЯЗЬ…" to TachoAmber
+                        link.state == LinkState.ERROR -> "ОШИБКА" to TachoRed
+                        else -> "ОТКЛ." to Color(0xFF94A3B8)
+                    }
                     Row(
                         modifier = Modifier
+                            .padding(end = 12.dp)
                             .testTag("topbar_bluetooth_status_pill")
                             .clip(RoundedCornerShape(16.dp))
                             .background(Color(0xFF1E293B))
                             .border(1.dp, Color(0xFF334155), RoundedCornerShape(16.dp))
-                            .clickable { showBluetoothDialog = true }
+                            .clickable { selectedTab = TachoNavTab.DEVICES.ordinal }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    when {
-                                        isRealDataActive -> ColorDriving
-                                        connectionState == ConnectionState.CONNECTED -> TachoAmber
-                                        connectionState == ConnectionState.DEMO_MODE -> TachoCyan
-                                        connectionState == ConnectionState.CONNECTING || connectionState == ConnectionState.SCANNING -> Color(0xFFF59E0B)
-                                        else -> TachoRed
-                                    }
-                                )
-                        )
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(color))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = when {
-                                isRealDataActive -> "ОНЛАЙН ЕС"
-                                connectionState == ConnectionState.CONNECTED -> "ПОДКЛЮЧЕНО"
-                                connectionState == ConnectionState.DEMO_MODE -> "ДЕМО"
-                                connectionState == ConnectionState.CONNECTING -> "СВЯЗЬ..."
-                                connectionState == ConnectionState.SCANNING -> "ПОИСК"
-                                else -> "ОТКЛ."
-                            },
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = when {
-                                isRealDataActive -> ColorDriving
-                                connectionState == ConnectionState.CONNECTED -> TachoAmber
-                                connectionState == ConnectionState.DEMO_MODE -> TachoCyan
-                                else -> Color(0xFFCBD5E1)
-                            }
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showBluetoothDialog = true },
-                        modifier = Modifier.testTag("topbar_bluetooth_icon_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Bluetooth,
-                            contentDescription = "Bluetooth настройки",
-                            tint = TachoCyan
-                        )
+                        Text(text = label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         bottomBar = {
             NavigationBar(
-                modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .testTag("bottom_navigation_bar"),
+                modifier = Modifier.testTag("bottom_navigation_bar"),
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp
             ) {
@@ -329,25 +257,13 @@ fun TachographApp(
                     Triple(TachoNavTab.LOG, Icons.Default.Assessment, Icons.Outlined.Assessment),
                     Triple(TachoNavTab.DEVICES, Icons.Default.Bluetooth, Icons.Outlined.Bluetooth)
                 )
-
-                tabs.forEachIndexed { index, (tab, filledIcon, outlinedIcon) ->
-                    val isSelected = selectedTabIndex == index
+                tabs.forEachIndexed { index, (tab, filled, outlined) ->
+                    val selected = selectedTab == index
                     NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { selectedTabIndex = index },
-                        icon = {
-                            Icon(
-                                imageVector = if (isSelected) filledIcon else outlinedIcon,
-                                contentDescription = tab.title
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
+                        selected = selected,
+                        onClick = { selectedTab = index },
+                        icon = { Icon(if (selected) filled else outlined, contentDescription = tab.title) },
+                        label = { Text(tab.title, fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Color(0xFF0F172A),
                             indicatorColor = TachoCyan,
@@ -362,78 +278,47 @@ fun TachographApp(
         }
     ) { innerPadding ->
         AnimatedContent(
-            targetState = selectedTabIndex,
+            targetState = selectedTab,
             transitionSpec = { fadeIn() togetherWith fadeOut() },
             label = "ScreenTransition",
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-        ) { tabIndex ->
-            when (tabIndex) {
-                0 -> DashboardScreen(
-                    telemetry = telemetry,
+        ) { tab ->
+            when (TachoNavTab.entries[tab]) {
+                TachoNavTab.DASHBOARD -> DashboardScreen(
+                    link = link,
+                    vehicle = vehicle,
                     compliance = compliance,
-                    currentActivity = currentActivity,
-                    driverCard1 = driverCard1,
-                    connectionState = connectionState,
-                    isRealDataActive = isRealDataActive,
-                    activeProtocolName = activeProtocolName,
-                    streamPacketsReceived = streamPacketsReceived,
-                    streamBytesReceived = streamBytesReceived,
-                    lastRawPacket = lastRawPacket,
-                    onSelectActivity = { viewModel.setActivity(it) },
-                    onPollTachograph = { viewModel.sendPollQuery() },
-                    onOpenBluetoothDialog = { showBluetoothDialog = true }
+                    onSelectActivity = viewModel::setActivity,
+                    onOpenBluetoothDialog = ::openScanner,
+                    onDisconnect = viewModel::disconnect,
+                    onStopDemo = viewModel::stopDemo
                 )
-                1 -> TimersScreen(
-                    compliance = compliance,
-                    onSaveCurrentShift = {
-                        viewModel.saveCurrentShift()
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Смена успешно сохранена в архив!")
-                        }
-                    }
-                )
-                2 -> DriverCardsScreen(
-                    driverCard1 = driverCard1,
-                    driverCard2 = driverCard2,
-                    onToggleCard = { slot -> viewModel.toggleCard(slot) }
-                )
-                3 -> HistoryLogScreen(
-                    timelineSegments = timelineSegments,
+                TachoNavTab.TIMERS -> TimersScreen(status = compliance, onSaveCurrentShift = viewModel::saveCurrentShift)
+                TachoNavTab.CARDS -> DriverCardsScreen(vehicle = vehicle, link = link)
+                TachoNavTab.LOG -> HistoryLogScreen(
+                    timeline = timeline,
                     events = events,
-                    savedSessions = savedSessions,
-                    isDownloadingDdd = isDownloadingDdd,
-                    dddProgress = dddProgress,
-                    exportedReportText = exportedReportText,
-                    onStartDddDownload = { viewModel.startDddDownload() },
-                    onDismissReport = { viewModel.dismissReport() },
-                    onDeleteSession = { id -> viewModel.deleteSession(id) }
+                    savedSessions = sessions,
+                    report = report,
+                    onBuildReport = viewModel::buildReport,
+                    onDismissReport = viewModel::dismissReport,
+                    onDeleteSession = viewModel::deleteSession
                 )
-                4 -> DevicesScreen(
-                    connectionState = connectionState,
-                    connectedDeviceName = connectedDeviceName,
-                    deviceInfo = deviceInfo,
-                    telemetry = telemetry,
-                    isRealDataActive = isRealDataActive,
-                    activeProtocolName = activeProtocolName,
-                    selectedProtocol = selectedProtocol,
-                    streamBytesReceived = streamBytesReceived,
-                    streamPacketsReceived = streamPacketsReceived,
-                    lastRawPacket = lastRawPacket,
-                    lastErrorMessage = lastErrorMessage,
-                    rawTerminalLogs = rawTerminalLogs,
+                TachoNavTab.DEVICES -> DevicesScreen(
+                    link = link,
+                    vehicle = vehicle,
+                    terminal = terminal,
                     hasBluetoothPermission = hasBtPermission,
-                    isBluetoothEnabled = isBtEnabled,
                     onRequestPermission = { requestBtPermissions() },
-                    onRequestEnableBluetooth = { requestEnableBt() },
-                    onSelectProtocol = { viewModel.setProtocol(it) },
-                    onPollTachograph = { viewModel.sendPollQuery() },
-                    onSendCustomCommand = { viewModel.sendCustomCommand(it) },
-                    onClearTerminalLogs = { viewModel.clearTerminalLogs() },
-                    onOpenBluetoothDialog = { showBluetoothDialog = true },
-                    onDisconnect = { viewModel.disconnect() },
-                    onEnableDemoMode = { viewModel.enableDemoMode() }
+                    onSelectProtocol = viewModel::setProtocol,
+                    onSendCommand = viewModel::sendCommand,
+                    onClearTerminal = viewModel::clearTerminal,
+                    onOpenBluetoothDialog = ::openScanner,
+                    onDisconnect = viewModel::disconnect,
+                    onStartDemo = viewModel::startDemo,
+                    onStopDemo = viewModel::stopDemo
                 )
             }
         }
