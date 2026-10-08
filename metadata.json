@@ -1,0 +1,6 @@
+{
+  "name": "Тахограф Про",
+  "description": "Приложение для подключения к европейским тахографам (VDO DTCO, Stoneridge SE5000, EFAS) по Bluetooth, мониторинга Регламента ЕС 561/2006 и Пакета мобильности ЕС.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
