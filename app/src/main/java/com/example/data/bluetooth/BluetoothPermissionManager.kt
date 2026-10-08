@@ -1,7 +1,6 @@
 package com.example.data.bluetooth
 
 import android.Manifest
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -9,79 +8,51 @@ import android.location.LocationManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 
-enum class BluetoothStatus {
-    READY,
-    PERMISSIONS_MISSING,
-    BLUETOOTH_DISABLED,
-    LOCATION_DISABLED_LEGACY
-}
-
 object BluetoothPermissionManager {
 
-    /**
-     * Returns list of required permissions for the current Android SDK level.
-     */
+    /** Runtime permissions needed to scan for and connect to Bluetooth adapters on this SDK level. */
     fun getRequiredPermissions(): List<String> {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
+            listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
         } else {
-            listOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
+            // Android 10–11 need fine location for discovery results; coarse is enough on older versions.
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         }
     }
 
-    /**
-     * Checks if all required permissions are granted by user.
-     */
-    fun arePermissionsGranted(context: Context): Boolean {
-        val permissions = getRequiredPermissions()
-        return permissions.all { perm ->
-            ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-        }
-    }
+    fun arePermissionsGranted(context: Context): Boolean =
+        getRequiredPermissions().all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
-    /**
-     * Checks if Bluetooth adapter is present and powered on.
-     */
+    fun hasConnectPermission(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
+    fun hasScanPermission(context: Context): Boolean = arePermissionsGranted(context)
+
+    fun isBluetoothSupported(context: Context): Boolean =
+        (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter != null
+
     fun isBluetoothEnabled(context: Context): Boolean {
-        val bm = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        val adapter = bm?.adapter ?: BluetoothAdapter.getDefaultAdapter()
-        return adapter != null && adapter.isEnabled
+        val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+        return try {
+            adapter?.isEnabled == true
+        } catch (e: SecurityException) {
+            false
+        }
     }
 
-    /**
-     * On Android 11 and lower, location services (GPS) had to be enabled
-     * for Bluetooth discovery to return results.
-     */
+    /** Before Android 12, discovery returns nothing while location services are off. */
     fun isLocationEnabledLegacy(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return true
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return true
         return try {
-            lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                    lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
         } catch (e: Exception) {
             true
         }
     }
 
-    /**
-     * Returns general ready-state of Bluetooth scanning.
-     */
-    fun getOverallStatus(context: Context): BluetoothStatus {
-        if (!arePermissionsGranted(context)) {
-            return BluetoothStatus.PERMISSIONS_MISSING
-        }
-        if (!isBluetoothEnabled(context)) {
-            return BluetoothStatus.BLUETOOTH_DISABLED
-        }
-        if (!isLocationEnabledLegacy(context)) {
-            return BluetoothStatus.LOCATION_DISABLED_LEGACY
-        }
-        return BluetoothStatus.READY
-    }
+    fun needsNotificationPermission(context: Context): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
 }

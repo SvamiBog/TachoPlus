@@ -1,9 +1,6 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,22 +8,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AvTimer
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.DirectionsBoat
-import androidx.compose.material.icons.filled.EventNote
-import androidx.compose.material.icons.filled.HomeWork
 import androidx.compose.material.icons.filled.Hotel
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Weekend
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -45,8 +40,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.model.WorkRestCompliance
-import com.example.data.model.formatSecondsToHhMm
+import com.example.data.model.DriverActivity
+import com.example.domain.compliance.ComplianceRules
+import com.example.domain.compliance.ComplianceStatus
+import com.example.ui.components.AlertBanner
+import com.example.ui.components.IconBadge
+import com.example.ui.components.NoteText
+import com.example.ui.components.Panel
+import com.example.ui.components.fmtDuration
+import com.example.ui.components.fmtLocalDateTime
 import com.example.ui.theme.ColorAvailable
 import com.example.ui.theme.ColorDriving
 import com.example.ui.theme.ColorRest
@@ -56,7 +58,7 @@ import com.example.ui.theme.TachoRed
 
 @Composable
 fun TimersScreen(
-    compliance: WorkRestCompliance,
+    status: ComplianceStatus,
     onSaveCurrentShift: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -68,190 +70,135 @@ fun TimersScreen(
     ) {
         item {
             Spacer(modifier = Modifier.height(6.dp))
-            // Regulation Info Header Banner
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF0F172A))
-                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(14.dp))
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = null,
-                    tint = TachoCyan,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Регламент (ЕС) № 561/2006 • Mobility Package I",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Единые европейские правила времени вождения и отдыха водителей в странах ЕС",
-                        fontSize = 11.sp,
-                        color = Color(0xFF94A3B8)
-                    )
-                }
-            }
-        }
-
-        // Section 1: Continuous Driving & Break
-        item {
-            TimerDetailCard(
-                title = "Непрерывное вождение (Continuous Driving)",
-                subtitle = "Лимит ЕС: максимум 04:30 без перерыва (ст. 7)",
-                currentStr = formatSecondsToHhMm(compliance.continuousDrivingSeconds),
-                maxStr = "04:30",
-                remainingStr = "До перерыва: ${formatSecondsToHhMm(compliance.remainingContinuousSeconds)}",
-                progress = compliance.continuousDrivingProgress,
-                accentColor = if (compliance.continuousDrivingSeconds >= compliance.maxContinuousDrivingSeconds) TachoRed else ColorDriving,
-                icon = Icons.Default.AvTimer,
-                note = "Перерыв 45 мин непрерывно, либо сплит: СТРОГО сначала ≥15 мин, затем ≥30 мин (только в таком порядке согласно ст. 7 Регламента 561/2006)."
-            )
-        }
-
-        item {
-            TimerDetailCard(
-                title = "Обязательный перерыв (Break / Pause)",
-                subtitle = "Требуется ЕС: 45 минут (или 15+30 мин)",
-                currentStr = formatSecondsToHhMm(compliance.accumulatedBreakSeconds),
-                maxStr = "00:45",
-                remainingStr = "Осталось отдыхать: ${formatSecondsToHhMm((2700 - compliance.accumulatedBreakSeconds).coerceAtLeast(0))}",
-                progress = compliance.breakProgress,
-                accentColor = ColorRest,
-                icon = Icons.Default.Coffee,
-                note = if (compliance.accumulatedBreakSeconds >= 2700) "Перерыв полностью выполнен! Таймер непрерывного вождения сброшен."
-                else "После завершения 45 мин отдыха таймер вождения 04:30 обнулится."
-            )
-        }
-
-        // Section 2: Daily Driving & Rest
-        item {
-            TimerDetailCard(
-                title = "Суточное вождение (Daily Driving)",
-                subtitle = "Базовый лимит: 9 часов (до 10 ч дважды в неделю, ст. 6)",
-                currentStr = formatSecondsToHhMm(compliance.dailyDrivingSeconds),
-                maxStr = "09:00",
-                remainingStr = "Запас на сегодня: ${formatSecondsToHhMm(compliance.remainingDailyDrivingSeconds)}",
-                progress = compliance.dailyDrivingProgress,
-                accentColor = TachoCyan,
-                icon = Icons.Default.Alarm,
-                note = "Использовано продлений до 10 часов на этой неделе: ${compliance.extendedDailyDaysUsedThisWeek} из 2 разрешенных."
-            )
-        }
-
-        item {
-            TimerDetailCard(
-                title = "Суточный межсменный отдых (Daily Rest)",
-                subtitle = "Регулярный 11ч (или 3ч+9ч), сокращенный 9ч (ст. 8)",
-                currentStr = formatSecondsToHhMm(compliance.requiredDailyRestSeconds),
-                maxStr = "11:00",
-                remainingStr = "Требуется перед следующей сменой: 11:00",
-                progress = 1.0f,
-                accentColor = ColorAvailable,
-                icon = Icons.Default.Hotel,
-                note = "Суточный отдых должен завершиться в течение 24 часов с момента начала смены (или 30ч для экипажа из 2 водителей)."
-            )
-        }
-
-        // Section 3: Weekly & Bi-Weekly Limits
-        item {
-            TimerDetailCard(
-                title = "Еженедельное вождение (Weekly Driving)",
-                subtitle = "Лимит ЕС: не более 56 часов за календарную неделю (ст. 6)",
-                currentStr = formatSecondsToHhMm(compliance.weeklyDrivingSeconds),
-                maxStr = "56:00",
-                remainingStr = "Осталось на неделю: ${formatSecondsToHhMm(compliance.remainingWeeklyDrivingSeconds)}",
-                progress = (compliance.weeklyDrivingSeconds.toFloat() / compliance.maxWeeklyDrivingSeconds).coerceIn(0f, 1f),
-                accentColor = TachoAmber,
-                icon = Icons.Default.DateRange,
-                note = "Календарная неделя в ЕС считается с 00:00 понедельника до 24:00 воскресенья по времени UTC."
-            )
-        }
-
-        item {
-            TimerDetailCard(
-                title = "Двухнедельное вождение (Bi-weekly Driving)",
-                subtitle = "Лимит ЕС: не более 90 часов за любые 2 недели подряд (ст. 6)",
-                currentStr = formatSecondsToHhMm(compliance.biweeklyDrivingSeconds),
-                maxStr = "90:00",
-                remainingStr = "Осталось за 2 недели: ${formatSecondsToHhMm((324000 - compliance.biweeklyDrivingSeconds).coerceAtLeast(0))}",
-                progress = (compliance.biweeklyDrivingSeconds.toFloat() / compliance.maxBiweeklyDrivingSeconds).coerceIn(0f, 1f),
-                accentColor = Color(0xFF60A5FA),
-                icon = Icons.Default.EventNote,
-                note = "Сумма часов вождения за 1-ю и 2-ю неделю не должна превышать 90 часов."
-            )
-        }
-
-        // Section 4: EU Mobility Package I rules (Ferry rule & Cabin rest prohibition)
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFF131D2E))
-                    .border(1.dp, Color(0xFF1E2E4A), RoundedCornerShape(18.dp))
-                    .padding(14.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.HomeWork,
-                        contentDescription = null,
-                        tint = TachoAmber,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Пакет мобильности ЕС: Запрет отдыха 45ч в кабине",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
+            Panel {
                 Text(
-                    text = "• Регулярный еженедельный отдых (≥45ч) СТРОГО ЗАПРЕЩЕН в кабине транспортного средства (ст. 8(8) Регламента 561/2006). Обязательно размещение в гостинице за счет работодателя.\n" +
-                            "• Возврат водителя на базу: каждые 4 недели водитель должен возвращаться в страну регистрации или место проживания.",
-                    fontSize = 11.sp,
-                    color = Color(0xFFCBD5E1),
-                    lineHeight = 15.sp
+                    text = "Регламент (ЕС) № 561/2006 · Пакет мобильности",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.DirectionsBoat,
-                        contentDescription = null,
-                        tint = TachoCyan,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Правило парома / поезда (Ferry Rule, ст. 9):",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Прерывание регулярного суточного отдыха (11ч) разрешено не более 2 раз на суммарное время до 1 часа при наличии спального места в каюте.",
-                    fontSize = 10.sp,
-                    color = Color(0xFF94A3B8)
+                NoteText(
+                    "Расчёт по журналу приложения. Юридически значимы только данные тахографа." +
+                        (status.trackingSinceMs?.let { " Записи с ${fmtLocalDateTime(it)}." } ?: " Записей пока нет.") +
+                        if (status.assumedRestMs > 0) " Время без данных (${fmtDuration(status.assumedRestMs)} за 2 недели) считается отдыхом." else ""
                 )
             }
         }
 
-        // Save Shift Button
+        items(status.alerts) { AlertBanner(it) }
+
+        item {
+            TimerDetailCard(
+                title = "Непрерывное вождение",
+                subtitle = "Не более 04:30 без перерыва (ст. 7)",
+                current = fmtDuration(status.continuousDrivingMs),
+                max = "04:30",
+                remaining = "До перерыва: ${fmtDuration(status.remainingContinuousDrivingMs)}",
+                progress = status.continuousDrivingProgress,
+                color = if (status.continuousDrivingMs > ComplianceRules.MAX_CONTINUOUS_DRIVING) TachoRed else ColorDriving,
+                icon = Icons.Default.AvTimer,
+                note = "Перерыв 45 мин подряд или 15 мин, а затем 30 мин — именно в таком порядке."
+            )
+        }
+
+        item {
+            val resting = status.currentActivity == DriverActivity.REST && !status.inDailyRest && !status.inWeeklyRest
+            TimerDetailCard(
+                title = "Перерыв",
+                subtitle = if (status.splitBreakFirstPartTaken) "Первая часть (15 мин) засчитана — нужно ещё 30 мин" else "Нужно 45 мин (или 15 + 30)",
+                current = if (resting) fmtDuration(status.currentBreakMs) else "—",
+                max = fmtDuration(status.currentBreakRequiredMs.takeIf { resting } ?: if (status.splitBreakFirstPartTaken) ComplianceRules.BREAK_SPLIT_SECOND else ComplianceRules.BREAK_FULL),
+                remaining = if (resting) "Осталось: ${fmtDuration((status.currentBreakRequiredMs - status.currentBreakMs).coerceAtLeast(0))}" else "Сейчас не перерыв",
+                progress = if (resting) status.breakProgress else 0f,
+                color = ColorRest,
+                icon = Icons.Default.Coffee,
+                note = "Перерывы короче 15 мин не учитываются. Другая работа и готовность перерывом не являются."
+            )
+        }
+
+        item {
+            val extensionsLeft = ComplianceRules.MAX_EXTENSIONS_PER_WEEK - status.extensionsUsedThisWeek
+            TimerDetailCard(
+                title = "Суточное вождение",
+                subtitle = "9 ч, до 10 ч не более 2 раз в неделю (ст. 6)",
+                current = fmtDuration(status.dailyDrivingMs),
+                max = fmtDuration(status.dailyDrivingLimitMs),
+                remaining = if (status.inDailyRest || status.inWeeklyRest) "Идёт отдых" else "Запас: ${fmtDuration(status.remainingDailyDrivingMs)}",
+                progress = status.dailyDrivingProgress,
+                color = if (status.dailyDrivingMs > status.dailyDrivingLimitMs) TachoRed else TachoCyan,
+                icon = Icons.Default.Alarm,
+                note = "Продлений до 10 ч на этой неделе осталось: $extensionsLeft из ${ComplianceRules.MAX_EXTENSIONS_PER_WEEK}."
+            )
+        }
+
+        item {
+            val restTarget = if (status.inDailyRest || status.inWeeklyRest) ComplianceRules.DAILY_REST_REGULAR else status.nextDailyRestRequiredMs
+            TimerDetailCard(
+                title = "Суточный отдых",
+                subtitle = "11 ч (или 3 ч + 9 ч), сокращённый 9 ч — не более 3 раз (ст. 8)",
+                current = if (status.currentActivity == DriverActivity.REST) fmtDuration(status.currentRestMs) else "—",
+                max = fmtDuration(restTarget),
+                remaining = when {
+                    status.inWeeklyRest -> "Идёт еженедельный отдых"
+                    status.inDailyRest -> if (status.currentRestMs >= ComplianceRules.DAILY_REST_REGULAR) "Отдых выполнен" else "Идёт отдых"
+                    status.latestDailyRestStartMs != null -> "Начать до ${fmtLocalDateTime(status.latestDailyRestStartMs)}"
+                    else -> "Начало смены неизвестно"
+                },
+                progress = if (status.currentActivity == DriverActivity.REST) (status.currentRestMs.toFloat() / restTarget).coerceIn(0f, 1f) else 0f,
+                color = ColorAvailable,
+                icon = Icons.Default.Hotel,
+                note = "Сокращённых суточных отдыхов после еженедельного: ${status.reducedDailyRestsUsed} из ${ComplianceRules.MAX_REDUCED_DAILY_RESTS}." +
+                    (status.shiftStartMs?.takeIf { status.shiftStartKnown }?.let { " Смена началась ${fmtLocalDateTime(it)}." } ?: "")
+            )
+        }
+
+        item {
+            TimerDetailCard(
+                title = "Недельное вождение",
+                subtitle = "Не более 56 ч за неделю: пн 00:00 – вс 24:00 UTC (ст. 6)",
+                current = fmtDuration(status.weeklyDrivingMs),
+                max = "56:00",
+                remaining = "Осталось: ${fmtDuration(status.remainingWeeklyDrivingMs)}",
+                progress = (status.weeklyDrivingMs.toFloat() / ComplianceRules.MAX_WEEKLY_DRIVING).coerceIn(0f, 1f),
+                color = if (status.weeklyDrivingMs > ComplianceRules.MAX_WEEKLY_DRIVING) TachoRed else TachoAmber,
+                icon = Icons.Default.DateRange,
+                note = "«Осталось» учитывает и лимит за две недели."
+            )
+        }
+
+        item {
+            TimerDetailCard(
+                title = "Вождение за 2 недели",
+                subtitle = "Не более 90 ч за две недели подряд (ст. 6)",
+                current = fmtDuration(status.biweeklyDrivingMs),
+                max = "90:00",
+                remaining = "Прошлая неделя: ${fmtDuration(status.previousWeekDrivingMs)}",
+                progress = (status.biweeklyDrivingMs.toFloat() / ComplianceRules.MAX_BIWEEKLY_DRIVING).coerceIn(0f, 1f),
+                color = Color(0xFF60A5FA),
+                icon = Icons.AutoMirrored.Filled.EventNote,
+                note = "Если приложение использовалось меньше двух недель, значение может быть неполным."
+            )
+        }
+
+        item {
+            TimerDetailCard(
+                title = "Еженедельный отдых",
+                subtitle = "45 ч (сокращённый 24 ч), не позднее 6×24 ч после предыдущего (ст. 8)",
+                current = if (status.inWeeklyRest) fmtDuration(status.currentRestMs) else "—",
+                max = "45:00",
+                remaining = when {
+                    status.inWeeklyRest -> "Идёт еженедельный отдых"
+                    status.weeklyRestDueMs != null -> "Начать до ${fmtLocalDateTime(status.weeklyRestDueMs)}"
+                    else -> "Предыдущий отдых не записан"
+                },
+                progress = if (status.inWeeklyRest) (status.currentRestMs.toFloat() / ComplianceRules.WEEKLY_REST_REGULAR).coerceIn(0f, 1f) else 0f,
+                color = ColorRest,
+                icon = Icons.Default.Weekend,
+                note = "Обычный еженедельный отдых нельзя проводить в кабине (ст. 8(8))."
+            )
+        }
+
         item {
             Button(
                 onClick = onSaveCurrentShift,
@@ -264,17 +211,11 @@ fun TimersScreen(
             ) {
                 Icon(imageVector = Icons.Default.Save, contentDescription = null, tint = Color(0xFF0F172A))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Зафиксировать и сохранить смену ЕС в архив",
-                    color = Color(0xFF0F172A),
-                    fontWeight = FontWeight.Bold
-                )
+                Text(text = "Сохранить текущую смену в архив", color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
             }
         }
 
-        item {
-            Spacer(modifier = Modifier.height(80.dp))
-        }
+        item { Spacer(modifier = Modifier.height(80.dp)) }
     }
 }
 
@@ -282,94 +223,52 @@ fun TimersScreen(
 private fun TimerDetailCard(
     title: String,
     subtitle: String,
-    currentStr: String,
-    maxStr: String,
-    remainingStr: String,
+    current: String,
+    max: String,
+    remaining: String,
     progress: Float,
-    accentColor: Color,
+    color: Color,
     icon: ImageVector,
     note: String
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(18.dp))
-            .padding(14.dp)
-    ) {
+    Panel {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.18f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                IconBadge(icon, color)
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = subtitle,
-                        fontSize = 10.sp,
-                        color = Color(0xFF94A3B8)
-                    )
+                    Text(text = title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(text = subtitle, fontSize = 10.sp, color = Color(0xFF94A3B8), lineHeight = 13.sp)
                 }
             }
-
+            Spacer(modifier = Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "$currentStr / $maxStr",
+                    text = "$current / $max",
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    color = accentColor
+                    color = color
                 )
-                Text(
-                    text = remainingStr,
-                    fontSize = 10.sp,
-                    color = Color(0xFFCBD5E1)
-                )
+                Text(text = remaining, fontSize = 10.sp, color = Color(0xFFCBD5E1))
             }
         }
-
         Spacer(modifier = Modifier.height(10.dp))
-
         LinearProgressIndicator(
             progress = { progress },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
                 .clip(CircleShape),
-            color = accentColor,
+            color = color,
             trackColor = Color(0xFF0F172A),
             strokeCap = StrokeCap.Round
         )
-
         Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = note,
-            fontSize = 11.sp,
-            color = Color(0xFF64748B),
-            lineHeight = 15.sp
-        )
+        Text(text = note, fontSize = 11.sp, color = Color(0xFF64748B), lineHeight = 15.sp)
     }
 }

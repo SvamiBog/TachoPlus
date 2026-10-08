@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,9 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.HourglassBottom
+import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -40,9 +39,31 @@ import com.example.ui.theme.ColorDriving
 import com.example.ui.theme.ColorRest
 import com.example.ui.theme.ColorWork
 
+fun activityColor(activity: DriverActivity?): Color = when (activity) {
+    DriverActivity.DRIVING -> ColorDriving
+    DriverActivity.WORK -> ColorWork
+    DriverActivity.AVAILABLE -> ColorAvailable
+    DriverActivity.REST -> ColorRest
+    null -> Color(0xFF64748B)
+}
+
+fun activityIcon(activity: DriverActivity): ImageVector = when (activity) {
+    DriverActivity.DRIVING -> Icons.Default.LocalShipping
+    DriverActivity.WORK -> Icons.Default.Build
+    DriverActivity.AVAILABLE -> Icons.Default.HourglassBottom
+    DriverActivity.REST -> Icons.Default.Hotel
+}
+
+/**
+ * Driver activity buttons. When [enabled] is false the tachograph reports the activity and the buttons only
+ * show it.
+ */
 @Composable
 fun ActivitySelector(
-    currentActivity: DriverActivity,
+    currentActivity: DriverActivity?,
+    sinceText: String?,
+    enabled: Boolean,
+    hint: String,
     onSelectActivity: (DriverActivity) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -60,103 +81,72 @@ fun ActivitySelector(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "РЕЖИМ ВОДИТЕЛЯ (АКТИВНОСТЬ)",
+                text = "РЕЖИМ ВОДИТЕЛЯ",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp
             )
             Text(
-                text = "Слот 1: ${currentActivity.titleRu}",
+                text = (currentActivity?.titleRu ?: "не задан") + (sinceText?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.labelSmall,
-                color = when (currentActivity) {
-                    DriverActivity.DRIVING -> ColorDriving
-                    DriverActivity.WORK -> ColorWork
-                    DriverActivity.AVAILABLE -> ColorAvailable
-                    DriverActivity.REST -> ColorRest
-                },
+                color = activityColor(currentActivity),
                 fontWeight = FontWeight.Bold
             )
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ActivityButton(
-                activity = DriverActivity.DRIVING,
-                icon = Icons.Default.LocalShipping,
-                accentColor = ColorDriving,
-                isSelected = currentActivity == DriverActivity.DRIVING,
-                onSelect = { onSelectActivity(DriverActivity.DRIVING) },
-                modifier = Modifier.weight(1f)
-            )
-
-            ActivityButton(
-                activity = DriverActivity.WORK,
-                icon = Icons.Default.Build,
-                accentColor = ColorWork,
-                isSelected = currentActivity == DriverActivity.WORK,
-                onSelect = { onSelectActivity(DriverActivity.WORK) },
-                modifier = Modifier.weight(1f)
-            )
-
-            ActivityButton(
-                activity = DriverActivity.AVAILABLE,
-                icon = Icons.Default.HourglassBottom,
-                accentColor = ColorAvailable,
-                isSelected = currentActivity == DriverActivity.AVAILABLE,
-                onSelect = { onSelectActivity(DriverActivity.AVAILABLE) },
-                modifier = Modifier.weight(1f)
-            )
-
-            ActivityButton(
-                activity = DriverActivity.REST,
-                icon = Icons.Default.Hotel,
-                accentColor = ColorRest,
-                isSelected = currentActivity == DriverActivity.REST,
-                onSelect = { onSelectActivity(DriverActivity.REST) },
-                modifier = Modifier.weight(1f)
-            )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DriverActivity.entries.forEach { activity ->
+                ActivityButton(
+                    activity = activity,
+                    isSelected = currentActivity == activity,
+                    enabled = enabled,
+                    onSelect = { onSelectActivity(activity) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(text = hint, fontSize = 11.sp, color = Color(0xFF94A3B8), lineHeight = 15.sp)
     }
 }
 
 @Composable
 private fun ActivityButton(
     activity: DriverActivity,
-    icon: ImageVector,
-    accentColor: Color,
     isSelected: Boolean,
+    enabled: Boolean,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val accent = activityColor(activity)
     val bgColor by animateColorAsState(
-        targetValue = if (isSelected) accentColor.copy(alpha = 0.22f) else Color(0xFF0F172A),
-        label = "ActivityBgAnimation"
+        targetValue = if (isSelected) accent.copy(alpha = 0.22f) else Color(0xFF0F172A),
+        label = "ActivityBg"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isSelected) accentColor else Color(0xFF334155),
-        label = "ActivityBorderAnimation"
+        targetValue = if (isSelected) accent else Color(0xFF334155),
+        label = "ActivityBorder"
     )
-
     Column(
         modifier = modifier
             .testTag("activity_button_${activity.name.lowercase()}")
             .clip(RoundedCornerShape(14.dp))
             .background(bgColor)
             .border(if (isSelected) 2.dp else 1.dp, borderColor, RoundedCornerShape(14.dp))
-            .clickable(onClick = onSelect)
+            .clickable(enabled = enabled, onClick = onSelect)
+            .alpha(if (enabled || isSelected) 1f else 0.5f)
             .padding(vertical = 12.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = icon,
+            imageVector = activityIcon(activity),
             contentDescription = activity.titleRu,
-            tint = if (isSelected) accentColor else Color(0xFF94A3B8),
+            tint = if (isSelected) accent else Color(0xFF94A3B8),
             modifier = Modifier.size(26.dp)
         )
         Spacer(modifier = Modifier.height(6.dp))
