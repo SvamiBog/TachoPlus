@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -44,7 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import android.widget.Toast
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -81,6 +86,8 @@ fun DevicesScreen(
     modifier: Modifier = Modifier
 ) {
     var command by remember { mutableStateOf("") }
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val connected = link.state == LinkState.CONNECTED
 
     LazyColumn(
@@ -164,6 +171,15 @@ fun DevicesScreen(
                         color = Color(0xFF94A3B8),
                         modifier = Modifier.weight(1f)
                     )
+                    IconButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(terminal.reversed().joinToString("\n")))
+                            Toast.makeText(context, "Журнал скопирован", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(28.dp).testTag("copy_terminal")
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Скопировать журнал", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                    }
                     IconButton(onClick = onClearTerminal, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.DeleteSweep, contentDescription = "Очистить", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                     }
@@ -200,7 +216,7 @@ fun DevicesScreen(
                         onValueChange = { command = it },
                         enabled = connected,
                         singleLine = true,
-                        placeholder = { Text(if (connected) "Команда, напр. ATRV" else "Подключите адаптер", fontSize = 11.sp) },
+                        placeholder = { Text(if (!connected) "Подключите адаптер" else if (link.activeProtocol == ProtocolMode.ITS_TACHOGRAPH) "REQ 1…7 или hex" else "Команда, напр. ATRV", fontSize = 11.sp) },
                         textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, color = Color.White),
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TachoCyan),
                         modifier = Modifier.weight(1f).testTag("terminal_input")
@@ -226,7 +242,9 @@ fun DevicesScreen(
                         "Тахограф передаёт туда режимы водителей, наличие карт и скорость (TCO1).\n" +
                         "• Фургон/легковой: OBD-II — только скорость, обороты и VIN; режим «Управление» включается по движению.\n" +
                         "• Свой шлюз: строки KEY=VALUE или candump по Bluetooth SPP/BLE (см. README).\n" +
-                        "• Прямое подключение к VDO SmartLink, Stoneridge и другим фирменным интерфейсам не поддерживается: их протоколы закрыты."
+                        "• Тахограф с Bluetooth (например, «DTCO-…»): открытый ITS-интерфейс по Регламенту 2016/799, прил. 13 — экспериментально. " +
+                        "Нужны сопряжение, PIN тахографа и согласие водителя на передачу данных.\n" +
+                        "• Фирменные сервисы (VDO SmartLink по BLE, приложения производителей) закрыты и не поддерживаются."
                 )
             }
         }

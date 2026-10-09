@@ -234,7 +234,7 @@ private fun DeviceRow(device: FoundBtDevice, onPair: () -> Unit, onConnect: (Con
             if (device.isPaired) {
                 Icon(Icons.Default.Check, contentDescription = null, tint = ColorDriving, modifier = Modifier.size(14.dp))
                 Text("Сопряжено", fontSize = 10.sp, color = ColorDriving, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            } else if (device.kind != DeviceKind.BLE) {
+            } else if (device.kind != DeviceKind.BLE || device.isTachograph) {
                 OutlinedButton(
                     onClick = onPair,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -249,10 +249,10 @@ private fun DeviceRow(device: FoundBtDevice, onPair: () -> Unit, onConnect: (Con
             } else {
                 Spacer(modifier = Modifier.weight(1f))
             }
-            if (device.kind != DeviceKind.BLE) {
+            if (device.kind != DeviceKind.BLE || device.isTachograph) {
                 TransportButton("SPP") { onConnect(ConnectTransport.SPP_RFCOMM) }
             }
-            if (device.kind != DeviceKind.CLASSIC) {
+            if (device.kind != DeviceKind.CLASSIC && !device.isTachograph) {
                 TransportButton("BLE") { onConnect(ConnectTransport.BLE_GATT) }
             }
             Button(
@@ -264,7 +264,15 @@ private fun DeviceRow(device: FoundBtDevice, onPair: () -> Unit, onConnect: (Con
                 Text("Подключить", fontSize = 11.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold)
             }
         }
-        if (!device.isPaired && device.kind != DeviceKind.BLE) {
+        if (device.isTachograph) {
+            Text(
+                text = "Встроенный Bluetooth тахографа. «Подключить» — ITS-интерфейс по SPP: понадобится сопряжение " +
+                    "и PIN с экрана тахографа. BLE-сервис тахографа закрытый и не поддерживается.",
+                fontSize = 9.sp,
+                color = TachoCyan,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        } else if (!device.isPaired && device.kind != DeviceKind.BLE) {
             Text(
                 text = "Классическим адаптерам обычно нужно сопряжение. PIN вводится в системном окне (часто 0000 или 1234).",
                 fontSize = 9.sp,

@@ -102,5 +102,9 @@ enum class ProtocolMode(val title: String, val description: String) {
     TEXT_GATEWAY(
         "Текстовый шлюз",
         "Свой CAN-мост или эмулятор: строки KEY=VALUE или кадры в формате candump."
+    ),
+    ITS_TACHOGRAPH(
+        "Тахограф ЕС · ITS-интерфейс",
+        "Встроенный Bluetooth тахографа (например, «DTCO-…»): SPP, PIN с экрана тахографа. Экспериментально."
     )
 }

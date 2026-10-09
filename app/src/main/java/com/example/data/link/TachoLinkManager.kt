@@ -23,6 +23,7 @@ import com.example.domain.protocol.ByteTransport
 import com.example.domain.protocol.ProtocolException
 import com.example.domain.protocol.MotionActivityDetector
 import com.example.domain.protocol.ProtocolMode
+import com.example.domain.protocol.ReconnectPolicy
 import com.example.domain.protocol.TachoSession
 import com.example.domain.protocol.VehicleLiveState
 import com.example.domain.protocol.VehicleUpdate
@@ -73,7 +74,9 @@ data class LinkStatus(
     val messagesDecoded: Long = 0,
     val lastDataMs: Long? = null,
     /** The tachograph reports the driver's working state, so manual selection is disabled. */
-    val tachographProvidesActivity: Boolean = false
+    val tachographProvidesActivity: Boolean = false,
+    /** Non-null while the tachograph waits for the ITS PIN; the number of wrong PINs sent in a row. */
+    val pinRequestFailures: Int? = null
 ) {
     val isLinkActive: Boolean
         get() = state == LinkState.CONNECTING || state == LinkState.CONNECTED || state == LinkState.RECONNECTING
@@ -104,6 +107,7 @@ class TachoLinkManager(
 
     private var sessionJob: Job? = null
     private var commands: Channel<String>? = null
+    private var pins: Channel<String>? = null
     private val motionDetector = MotionActivityDetector()
 
     /** Current activity of the driver's own record and where it came from (for de-duplication and motion detection). */
@@ -166,18 +170,22 @@ class TachoLinkManager(
         stopSessionJob()
         settings.lastDeviceAddress = device.address
         settings.lastDeviceName = device.name
-        val protocol = settings.protocolMode
+        val tachograph = FoundBtDevice.looksLikeTachograph(device.name)
+        val protocol = if (settings.protocolMode == ProtocolMode.AUTO && tachograph) ProtocolMode.ITS_TACHOGRAPH else settings.protocolMode
+        // The ITS interface of the tachograph is specified on Bluetooth SPP (Classic), not BLE.
+        val effectiveTransport = if (transport == ConnectTransport.AUTO && protocol == ProtocolMode.ITS_TACHOGRAPH) ConnectTransport.SPP_RFCOMM else transport
+        if (tachograph) log("[SYS] ${device.name}: встроенный Bluetooth тахографа — ${protocol.title}, ${effectiveTransport.title}")
         _vehicle.value = VehicleLiveState()
         _status.value = LinkStatus(
             state = LinkState.CONNECTING,
             deviceName = device.name,
             deviceAddress = device.address,
-            transport = transport,
-            requestedProtocol = protocol
+            transport = effectiveTransport,
+            requestedProtocol = settings.protocolMode
         )
         TachoLinkService.start(context)
         val gen = generation
-        sessionJob = scope.launch { runConnectionLoop(device, transport, protocol, gen) }
+        sessionJob = scope.launch { runConnectionLoop(device, effectiveTransport, protocol, gen) }
     }
 
     fun disconnect() {
@@ -231,6 +239,17 @@ class TachoLinkManager(
         return true
     }
 
+    /** Sends the PIN shown on the tachograph to the waiting ITS session. */
+    fun submitPin(pin: String): Boolean {
+        val channel = pins ?: return false
+        if (pin.length < 4 || !pin.all(Char::isDigit)) {
+            _messages.tryEmit("PIN — не меньше 4 цифр")
+            return false
+        }
+        _status.update { it.copy(pinRequestFailures = null, message = "PIN отправлен, жду ответа тахографа…") }
+        return channel.trySend(pin).isSuccess
+    }
+
     fun sendCommand(cmd: String): Boolean {
         val channel = commands
         if (channel == null || _status.value.state != LinkState.CONNECTED || cmd.isBlank()) return false
@@ -249,6 +268,8 @@ class TachoLinkManager(
         sessionJob = null
         commands?.close()
         commands = null
+        pins?.close()
+        pins = null
         motionDetector.reset()
         drivingWithoutCardReported = false
     }
@@ -272,53 +293,70 @@ class TachoLinkManager(
     }
 
     private suspend fun runConnectionLoop(device: FoundBtDevice, transport: ConnectTransport, protocol: ProtocolMode, gen: Int) {
-        var attempt = 0
-        var everConnected = false
+        val policy = ReconnectPolicy()
+        var announced = false
         while (currentCoroutineContext().isActive) {
-            val error = try {
+            val decision = try {
                 val link = openTransport(device, transport)
-                everConnected = true
-                attempt = 0
-                runSession(link, protocol, gen)
-                null
+                policy.onConnected()
+                if (!announced) {
+                    announced = true
+                    events.log("LINK", "Подключено", device.name, EventSeverity.INFO)
+                    _messages.tryEmit("Подключено: ${device.name}")
+                }
+                val startedAt = System.currentTimeMillis()
+                val error = try {
+                    runSession(link, protocol, gen)
+                    null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    e
+                }
+                policy.onSessionEnded(
+                    durationMs = System.currentTimeMillis() - startedAt,
+                    decodedMessages = _status.value.messagesDecoded,
+                    reason = error?.message ?: "соединение закрыто",
+                    fatal = error is ProtocolException
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                e
+                policy.onConnectFailed(e.message ?: e.javaClass.simpleName)
             }
             endTachographActivity()
-            val reason = error?.message ?: "Соединение закрыто"
-            if ((!everConnected && attempt == 0) || error is ProtocolException || !settings.autoReconnect) {
-                log("[ERR] $reason")
-                _status.update {
-                    it.copy(
-                        state = LinkState.ERROR,
-                        message = reason + "\n" + adviceFor(device),
-                        tachographProvidesActivity = false
-                    )
+            when (decision) {
+                is ReconnectPolicy.Decision.GiveUp -> {
+                    log("[ERR] ${decision.reason}")
+                    _status.update {
+                        it.copy(
+                            state = LinkState.ERROR,
+                            message = decision.reason + "\n" + adviceFor(device, transport, protocol),
+                            tachographProvidesActivity = false,
+                            pinRequestFailures = null
+                        )
+                    }
+                    events.log("LINK", "Ошибка подключения", "${device.name}: ${decision.reason}", EventSeverity.WARNING)
+                    return
                 }
-                events.log("LINK", "Ошибка подключения", "${device.name}: $reason", EventSeverity.WARNING)
-                return
+                is ReconnectPolicy.Decision.Retry -> {
+                    if (decision.reportLoss && announced) {
+                        announced = false
+                        events.log("LINK", "Связь с адаптером потеряна", device.name, EventSeverity.WARNING)
+                        _messages.tryEmit("Связь потеряна — переподключение")
+                    }
+                    _status.update {
+                        it.copy(
+                            state = LinkState.RECONNECTING,
+                            message = "Повтор через ${decision.delayMs / 1000} с (попытка ${decision.attempt})",
+                            tachographProvidesActivity = false,
+                            pinRequestFailures = null
+                        )
+                    }
+                    log("[SYS] Повторное подключение через ${decision.delayMs / 1000} с")
+                    delay(decision.delayMs)
+                }
             }
-            if (everConnected && attempt == 0) {
-                events.log("LINK", "Связь с адаптером потеряна", "${device.name}: $reason", EventSeverity.WARNING)
-                _messages.tryEmit("Связь с адаптером потеряна — переподключение")
-            }
-            attempt++
-            if (attempt > MAX_RECONNECT_ATTEMPTS) {
-                _status.update { it.copy(state = LinkState.ERROR, message = "Не удалось восстановить связь: $reason") }
-                return
-            }
-            val wait = minOf(5_000L * attempt, 30_000L)
-            _status.update {
-                it.copy(
-                    state = LinkState.RECONNECTING,
-                    message = "$reason. Повтор через ${wait / 1000} с (попытка $attempt)",
-                    tachographProvidesActivity = false
-                )
-            }
-            log("[SYS] Повторное подключение через ${wait / 1000} с")
-            delay(wait)
         }
     }
 
@@ -352,11 +390,10 @@ class TachoLinkManager(
 
     private suspend fun runSession(link: ByteTransport, protocol: ProtocolMode, gen: Int) {
         val channel = Channel<String>(Channel.UNLIMITED)
+        val pinChannel = Channel<String>(Channel.CONFLATED)
         commands = channel
+        pins = pinChannel
         _status.update { it.copy(state = LinkState.CONNECTED, message = null, bytesReceived = 0, messagesDecoded = 0) }
-        val name = _status.value.deviceName ?: "адаптер"
-        events.log("LINK", "Подключено", name, EventSeverity.INFO)
-        _messages.tryEmit("Подключено: $name")
         val listener = object : TachoSession.Listener {
             override fun onUpdate(update: VehicleUpdate) = handleUpdate(update, ActivitySource.TACHOGRAPH, gen)
             override fun onLog(line: String) = log(line)
@@ -367,13 +404,29 @@ class TachoLinkManager(
             override fun onBytes(count: Int) {
                 _status.update { it.copy(bytesReceived = it.bytesReceived + count, lastDataMs = System.currentTimeMillis()) }
             }
+            override fun onMessageDecoded() {
+                if (gen == generation) _status.update { it.copy(messagesDecoded = it.messagesDecoded + 1) }
+            }
+            override fun onPinRequired(failedAttempts: Int) {
+                if (gen != generation) return
+                _status.update { it.copy(pinRequestFailures = failedAttempts, message = "Тахограф запрашивает PIN") }
+                _messages.tryEmit("Введите PIN с экрана тахографа")
+            }
+            override fun onNotice(message: String) {
+                if (gen != generation) return
+                log("[SYS] $message")
+                _status.update { it.copy(message = message) }
+                _messages.tryEmit(message)
+            }
         }
         try {
-            TachoSession(link, protocol, listener, channel).run()
+            TachoSession(link, protocol, listener, channel, pinChannel).run()
         } finally {
             link.close()
             channel.close()
+            pinChannel.close()
             if (commands === channel) commands = null
+            if (pins === pinChannel) pins = null
         }
     }
 
@@ -429,12 +482,15 @@ class TachoLinkManager(
         }
     }
 
-    private fun adviceFor(device: FoundBtDevice): String =
-        if (!device.isPaired && device.kind != DeviceKind.BLE) {
+    private fun adviceFor(device: FoundBtDevice, transport: ConnectTransport, protocol: ProtocolMode): String = when {
+        FoundBtDevice.looksLikeTachograph(device.name) && transport == ConnectTransport.BLE_GATT ->
+            "Это Bluetooth тахографа: его BLE-сервис закрыт. Подключайтесь кнопкой «SPP» или «Подключить» (протокол ITS)."
+        protocol == ProtocolMode.ITS_TACHOGRAPH ->
+            "Проверьте, что Bluetooth/ITS включён в меню тахографа и телефон сопряжён с ним (код сопряжения показывает тахограф)."
+        !device.isPaired && device.kind != DeviceKind.BLE ->
             "Сопрягите адаптер в списке или в настройках Android (PIN обычно 0000 или 1234)."
-        } else {
-            "Проверьте, что адаптер получает питание (зажигание), и что его не занимает другое приложение."
-        }
+        else -> "Проверьте, что адаптер получает питание (зажигание), и что его не занимает другое приложение."
+    }
 
     private fun log(line: String) {
         val entry = "${timeFormat.format(Date())} $line"

@@ -47,6 +47,9 @@ data class FoundBtDevice(
             }
         }
 
+    val isTachograph: Boolean
+        get() = looksLikeTachograph(name)
+
     val kindLabel: String
         get() = when (kind) {
             DeviceKind.CLASSIC -> "Classic (SPP)"
@@ -63,7 +66,13 @@ data class FoundBtDevice(
 
         fun looksLikeAdapter(name: String): Boolean {
             val lower = name.lowercase()
-            return adapterHints.any { lower.contains(it) }
+            return adapterHints.any { lower.contains(it) } || looksLikeTachograph(name)
+        }
+
+        /** Built-in Bluetooth of a tachograph, e.g. VDO DTCO 4.x advertises as "DTCO-<registration>". */
+        fun looksLikeTachograph(name: String): Boolean {
+            val upper = name.uppercase()
+            return upper.startsWith("DTCO") || upper.contains("SE5000") || upper.contains("SMARTACH") || upper.contains("EFAS")
         }
     }
 }

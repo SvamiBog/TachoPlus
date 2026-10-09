@@ -141,19 +141,37 @@ class TachoSession(
     private val transport: ByteTransport,
     private val requestedMode: ProtocolMode,
     private val listener: Listener,
-    private val userCommands: ReceiveChannel<String>
+    private val userCommands: ReceiveChannel<String>,
+    private val pins: ReceiveChannel<String> = Channel()
 ) {
     interface Listener {
         fun onUpdate(update: VehicleUpdate)
         fun onLog(line: String)
         fun onModeResolved(mode: ProtocolMode, adapterInfo: String?)
         fun onBytes(count: Int)
+
+        /** A valid message arrived that carries no vehicle data (e.g. ITS service messages). */
+        fun onMessageDecoded() {}
+
+        /** The tachograph asks for the ITS PIN; [failedAttempts] wrong PINs were sent in a row. */
+        fun onPinRequired(failedAttempts: Int) {}
+
+        /** Something the driver should see, not only the terminal. */
+        fun onNotice(message: String) {}
     }
 
     private val assembler = J1939TransportAssembler()
     private var monitorWithCount: Boolean? = null
 
-    suspend fun run() = coroutineScope {
+    suspend fun run() {
+        if (requestedMode == ProtocolMode.ITS_TACHOGRAPH) {
+            ItsSession(transport, listener, userCommands, pins).run()
+        } else {
+            runAdapter()
+        }
+    }
+
+    private suspend fun runAdapter() = coroutineScope {
         val lines = Channel<AdapterLine>(Channel.UNLIMITED)
         val splitter = LineSplitter()
         val reader = launch {
