@@ -92,6 +92,7 @@ class TachographViewModel(application: Application) : AndroidViewModel(applicati
         if (!container.link.sendCommand(cmd)) _localMessages.tryEmit("Команды можно отправлять только при подключённом адаптере")
     }
     fun clearTerminal() = container.link.clearTerminal()
+    fun submitPin(pin: String) = container.link.submitPin(pin)
 
     fun setActivity(activity: DriverActivity) {
         if (container.link.setManualActivity(activity)) _localMessages.tryEmit("Режим: ${activity.titleRu}")

@@ -71,9 +71,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.collectLatest
 import com.example.data.bluetooth.BluetoothPermissionManager
 import com.example.data.link.LinkState
 import com.example.ui.components.BluetoothScannerDialog
+import com.example.ui.components.PinDialog
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.DevicesScreen
 import com.example.ui.screens.DriverCardsScreen
@@ -122,7 +124,17 @@ fun TachographApp(viewModel: TachographViewModel = viewModel()) {
     }
 
     LaunchedEffect(Unit) {
-        viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
+        // Only the latest message matters; older ones must not pile up behind it.
+        viewModel.messages.collectLatest { snackbarHostState.showSnackbar(it) }
+    }
+
+    link.pinRequestFailures?.let { failures ->
+        PinDialog(
+            deviceName = link.deviceName,
+            failedAttempts = failures,
+            onSubmit = { viewModel.submitPin(it) },
+            onCancel = viewModel::disconnect
+        )
     }
 
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
